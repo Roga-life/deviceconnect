@@ -61,16 +61,24 @@ from flask_dance.contrib.fitbit import fitbit, make_fitbit_blueprint
 
 from .firestore_storage import FirestoreStorage
 
+# FITBIT_SCOPES = [
+#     "activity",
+#     "heartrate",
+#     "location",
+#     "nutrition",
+#     "profile",
+#     "settings",
+#     "sleep",
+#     "social",
+#     "weight",
+#     "oxygen_saturation",
+#     "temperature"
+# ]
 FITBIT_SCOPES = [
     "activity",
     "heartrate",
-    "location",
-    "nutrition",
-    "profile",
-    "settings",
     "sleep",
-    "social",
-    "weight",
+    "respiratory_rate",
     "oxygen_saturation",
     "temperature"
 ]
