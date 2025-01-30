@@ -39,6 +39,20 @@ Routes:
 
     /fitbit_spo2_scope: spo2 data
 
+    /fitbit_spo2_intraday_scope: spo2 intraday data
+
+    /fitbit_temp_scope: temperature data
+
+    -------- New scopes added for research study: --------
+
+    /all_endpoints: trigger all fitbit endpoints for research study in FITBIT_ENDPOINTS
+
+    /fitbit_breathing_rate_scope: breathing rate data
+
+    /fitbit_sleep_goal_scope: sleep goal data
+
+    /fitbit_hrv_scope: heart rate variability data
+
 Dependencies:
 
     - fitbit application configuration is required to access the
@@ -66,9 +80,10 @@ import timeit
 from datetime import date, datetime, timedelta
 import logging
 
+import requests
 import pandas as pd
 import pandas_gbq
-from flask import Blueprint, request
+from flask import Blueprint, request, jsonify
 from flask_dance.contrib.fitbit import fitbit
 from authlib.integrations.flask_client import OAuth
 from skimpy import clean_columns
@@ -88,6 +103,56 @@ if not bigquery_datasetname:
 
 def _tablename(table: str) -> str:
     return bigquery_datasetname + "." + table
+
+PORT = os.environ.get("PORT", "3000")
+DOMAIN = os.environ.get("DOMAIN", f"http://localhost:{PORT}")
+
+print(f"DOMAIN: {DOMAIN}")
+
+FITBIT_ENDPOINTS = [
+    f"{DOMAIN}/fitbit_heart_rate_scope",
+    f"{DOMAIN}/fitbit_sleep_scope",
+    f"{DOMAIN}/fitbit_sleep_goal_scope",
+    f"{DOMAIN}/fitbit_spo2_scope",
+    f"{DOMAIN}/fitbit_spo2_intraday_scope",
+    f"{DOMAIN}/fitbit_temp_scope",
+    f"{DOMAIN}/fitbit_breathing_rate_scope",
+    f"{DOMAIN}/fitbit_hrv_scope"
+]
+
+def send_request(url):
+    try:
+        response = requests.get(url, timeout=60)
+        status = response.status_code
+
+        if status == 200:
+            print(f"✅ Success: {url}")
+            return {"url": url, "status": "Success", "response": response.text.strip()}
+        else:
+            print(f"❌ Failed: {url} (Status Code: {status})")
+            return {"url": url, "status": f"Failed ({status})", "response": response.text.strip()}
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error: {url} (Exception: {str(e)})")
+        return {"url": url, "status": f"Error ({str(e)})"}
+
+@bp.route("/all_endpoints")
+def all_endpoints():
+    print("🔄 Starting Fitbit data ingestion...")
+
+    results = []
+    for endpoint in FITBIT_ENDPOINTS:
+        print(f"🙀 Sending {endpoint} request to Fitbit endpoint...")
+        result = send_request(endpoint)
+        print("🚗 Done")
+        results.append(result)
+
+    print("✅ Fitbit data ingestion process completed.")
+
+    return jsonify({
+        "status": "completed",
+        "results": results
+    })
 
 
 @bp.route("/ingest")
@@ -2101,6 +2166,347 @@ def fitbit_intraday_scope():
     fitbit_bp.storage.user = None
 
     return "Intraday Scope Loaded"
+
+
+#
+# Get HRV Intraday by Date
+#
+@bp.route("/fitbit_hrv_scope")
+def fitbit_hrv_scope():
+    start = timeit.default_timer()
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    date_pulled = request.args.get("date", _date_pulled())
+    user_list = fitbit_bp.storage.all_users()
+
+    if request.args.get("user") in user_list:
+        user_list = [request.args.get("user")]
+
+    pd.set_option("display.max_columns", 500)
+
+    hrv_list = []
+
+    for user in user_list:
+
+        # Set the user in the Fitbit session
+        fitbit_bp.storage.user = user
+
+        # Clear any existing tokens to ensure a fresh API call
+        if fitbit_bp.session.token:
+            del fitbit_bp.session.token
+
+        try:
+            resp = fitbit.get(f"/1/user/-/hrv/date/{date_pulled}/all.json")
+
+            log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+            
+            response_json = resp.json()
+
+            # Extract HRV minute data
+            hrv_data = response_json["hrv"][0]["minutes"]
+
+            # Normalize and format the response data
+            hrv_df = pd.json_normalize(hrv_data)
+            hrv_columns = [
+                "minute",
+                "value.rmssd",
+                "value.coverage",
+                "value.hf",
+                "value.lf"
+            ]
+            hrv_df = _normalize_response(hrv_df, hrv_columns, user, date_pulled)
+
+            # Append the DataFrame to the list
+            hrv_list.append(hrv_df)
+
+        except Exception as e:
+            log.error("Exception occurred: %s", str(e))
+
+    if len(hrv_list) > 0:
+        try:
+            # Combine all user DataFrames into one bulk DataFrame
+            bulk_hrv_df = pd.concat(hrv_list, axis=0)
+
+            # Load the bulk DataFrame into BigQuery
+            pandas_gbq.to_gbq(
+                dataframe=bulk_hrv_df,
+                destination_table=_tablename("hrv_intraday"),
+                project_id=project_id,
+                if_exists="append",
+                table_schema=[
+                    {
+                        "name": "id",
+                        "type": "STRING",
+                        "mode": "REQUIRED",
+                        "description": "Primary Key",
+                    },
+                    {
+                        "name": "date",
+                        "type": "DATE",
+                        "mode": "REQUIRED",
+                        "description": "The date values were extracted",
+                    },
+                    {
+                        "name": "minute",
+                        "type": "TIMESTAMP",
+                        "description": "Timestamp when the HRV measurement was taken.",
+                    },
+                    {
+                        "name": "value.rmssd",
+                        "type": "FLOAT",
+                        "description": "Root Mean Square of Successive Differences (RMSSD) in HRV.",
+                    },
+                    {
+                        "name": "value.coverage",
+                        "type": "FLOAT",
+                        "description": "Data completeness in terms of the number of interbeat intervals.",
+                    },
+                    {
+                        "name": "value.hf",
+                        "type": "FLOAT",
+                        "description": "High Frequency (HF) power in HRV.",
+                    },
+                    {
+                        "name": "value.lf",
+                        "type": "FLOAT",
+                        "description": "Low Frequency (LF) power in HRV.",
+                    },
+                ],
+            )
+
+        except Exception as e:
+            print(f"❌ Exception occurred during BigQuery load: {str(e)}")
+            log.error("Exception occurred during BigQuery load: %s", str(e))
+
+    else:
+        print("😰 No data to load into BigQuery.")
+
+    stop = timeit.default_timer()
+    execution_time = stop - start
+    print("HRV Scope Loaded: " + str(execution_time))
+
+    # Clear the Fitbit user session
+    fitbit_bp.storage.user = None
+
+    return "HRV Scope Loaded"
+
+
+#
+# Get Breathing Rate Intraday by Date
+#
+@bp.route("/fitbit_breathing_rate_scope")
+def fitbit_breathing_rate_scope():
+    start = timeit.default_timer()
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    date_pulled = request.args.get("date", _date_pulled())
+    user_list = fitbit_bp.storage.all_users()
+
+    if request.args.get("user") in user_list:
+        user_list = [request.args.get("user")]
+
+    pd.set_option("display.max_columns", 500)
+
+    breathing_rate_list = []
+
+    for user in user_list:
+        # Set the user in the Fitbit session
+        fitbit_bp.storage.user = user
+
+        # Clear any existing tokens to ensure a fresh API call
+        if fitbit_bp.session.token:
+            del fitbit_bp.session.token
+
+        try:
+            resp = fitbit.get(f"/1/user/-/br/date/{date_pulled}/all.json")
+
+            log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+
+            response_json = resp.json()
+
+            # Directly extract the first value object
+            breathing_rate_data = response_json["br"][0]["value"]
+
+            # Normalize and format the response data
+            breathing_rate_df = pd.json_normalize(breathing_rate_data)
+            breathing_rate_columns = [
+                "deepSleepSummary.breathingRate",
+                "remSleepSummary.breathingRate",
+                "fullSleepSummary.breathingRate",
+                "lightSleepSummary.breathingRate"
+            ]
+            breathing_rate_df = _normalize_response(breathing_rate_df, breathing_rate_columns, user, date_pulled)
+
+            # Append the DataFrame to the list
+            breathing_rate_list.append(breathing_rate_df)
+
+        except Exception as e:
+            print(f"Exception occurred for user {user}: {str(e)}")
+            log.error("Exception occurred: %s", str(e))
+
+    if len(breathing_rate_list) > 0:
+        try:
+            # Combine all user DataFrames into one bulk DataFrame
+            bulk_breathing_rate_df = pd.concat(breathing_rate_list, axis=0)
+
+            # Load the bulk DataFrame into BigQuery
+            pandas_gbq.to_gbq(
+                dataframe=bulk_breathing_rate_df,
+                destination_table=_tablename("breathing_rate"),
+                project_id=project_id,
+                if_exists="append",
+                table_schema=[
+                    {
+                        "name": "id",
+                        "type": "STRING",
+                        "mode": "REQUIRED",
+                        "description": "Primary Key",
+                    },
+                    {
+                        "name": "date",
+                        "type": "DATE",
+                        "mode": "REQUIRED",
+                        "description": "The date values were extracted",
+                    },
+                    {
+                        "name": "deepSleepSummary.breathingRate",
+                        "type": "FLOAT",
+                        "description": "Breathing rate during deep sleep stage.",
+                    },
+                    {
+                        "name": "remSleepSummary.breathingRate",
+                        "type": "FLOAT",
+                        "description": "Breathing rate during REM sleep stage.",
+                    },
+                    {
+                        "name": "fullSleepSummary.breathingRate",
+                        "type": "FLOAT",
+                        "description": "Overall breathing rate during full sleep cycle.",
+                    },
+                    {
+                        "name": "lightSleepSummary.breathingRate",
+                        "type": "FLOAT",
+                        "description": "Breathing rate during light sleep stage.",
+                    },
+                ],
+            )
+
+        except Exception as e:
+            log.error("Exception occurred during BigQuery load: %s", str(e))
+
+    else:
+        print("😰 No data to load into BigQuery.")
+
+    stop = timeit.default_timer()
+    execution_time = stop - start
+    print("Breathing Scope Loaded: " + str(execution_time))
+
+    # Clear the Fitbit user session
+    fitbit_bp.storage.user = None
+
+    return "Breathing Rate Scope Loaded"
+
+
+#
+# Sleep Goal
+#
+@bp.route("/fitbit_sleep_goal_scope")
+def fitbit_sleep_goal_scope():
+
+    start = timeit.default_timer()
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    date_pulled = request.args.get("date", _date_pulled())
+    user_list = fitbit_bp.storage.all_users()
+    if request.args.get("user") in user_list:
+        user_list = [request.args.get("user")]
+
+    pd.set_option("display.max_columns", 500)
+
+    sleep_goal_list = []
+
+    for user in user_list:
+        # Set the user in the Fitbit session
+        fitbit_bp.storage.user = user
+
+        # Clear any existing tokens to ensure a fresh API call
+        if fitbit_bp.session.token:
+            del fitbit_bp.session.token
+
+        try:
+            resp = fitbit.get("/1.2/user/-/sleep/goal.json")
+            
+            log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+
+            response_json = resp.json()
+
+            # Normalize and format the response data
+            sleep_goal_df = pd.json_normalize(response_json["goal"])
+            sleep_goal_columns = ["minDuration", "updatedOn"]
+            sleep_goal_df = _normalize_response(sleep_goal_df, sleep_goal_columns, user, date_pulled)
+
+            # Add the consistency flowId from the API response
+            sleep_goal_df["flow_id"] = response_json["consistency"]["flowId"]
+
+            # Append the DataFrame to the list
+            sleep_goal_list.append(sleep_goal_df)
+
+        except Exception as e:
+            log.error("Exception occurred: %s", str(e))
+
+    if len(sleep_goal_list) > 0:
+        try:
+            # Combine all user DataFrames into one bulk DataFrame
+            bulk_sleep_goal_df = pd.concat(sleep_goal_list, axis=0)
+
+            # Load the bulk DataFrame into BigQuery
+            pandas_gbq.to_gbq(
+                dataframe=bulk_sleep_goal_df,
+                destination_table=_tablename("sleep_goals"),
+                project_id=project_id,
+                if_exists="append",
+                table_schema=[
+                    {
+                        "name": "id",
+                        "type": "STRING",
+                        "mode": "REQUIRED",
+                        "description": "Primary Key",
+                    },
+                    {
+                        "name": "date",
+                        "type": "DATE",
+                        "mode": "REQUIRED",
+                        "description": "The date values were extracted",
+                    },
+                    {
+                        "name": "minDuration",
+                        "type": "INTEGER",
+                        "description": "Minimum sleep duration in minutes.",
+                    },
+                    {
+                        "name": "updatedOn",
+                        "type": "TIMESTAMP",
+                        "description": "Timestamp of the last update to the goal.",
+                    },
+                    {
+                        "name": "flow_id",
+                        "type": "INTEGER",
+                        "description": "Flow ID related to sleep consistency.",
+                    },
+                ],
+            )
+
+        except Exception as e:
+            log.error("Exception occurred during BigQuery load: %s", str(e))
+
+    else:
+        print("No data to load into BigQuery.")
+
+    stop = timeit.default_timer()
+    execution_time = stop - start
+    print(f"Sleep Goal Scope Loaded in {execution_time:.2f} seconds.")
+
+    # Clear the Fitbit user session
+    fitbit_bp.storage.user = None
+
+    return "Sleep Goal Scope Loaded"
 
 
 #

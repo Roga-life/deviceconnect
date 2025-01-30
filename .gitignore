@@ -22,3 +22,5 @@ flask_session
 terraform.tfvars
 .terraform
 .terraform.lock.hcl
+
+roga-stage---testing-device-connect.json
