@@ -89,7 +89,7 @@ from authlib.integrations.flask_client import OAuth
 from skimpy import clean_columns
 
 from .fitbit_auth import fitbit_bp
-
+import time
 
 log = logging.getLogger(__name__)
 
@@ -374,6 +374,8 @@ def fitbit_chunk_1():
     # df = pandas_gbq.read_gbq(sql, project_id=project_id)
 
     if len(badges_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨)")
+
 
         try:
 
@@ -442,6 +444,8 @@ def fitbit_chunk_1():
             log.error("exception occured: %s", str(e))
 
     if len(device_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -490,6 +494,7 @@ def fitbit_chunk_1():
             log.error("exception occured: %s", str(e))
 
     if len(social_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
 
         try:
 
@@ -613,9 +618,10 @@ def fitbit_body_weight():
     log.debug("push to BQ")
 
     if len(body_weight_df_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
-
             bulk_body_weight_df = pd.concat(body_weight_df_list, axis=0)
 
             pandas_gbq.to_gbq(
@@ -798,6 +804,8 @@ def fitbit_nutrition_scope():
     log.debug("push to BQ")
 
     if len(nutrition_summary_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -865,6 +873,8 @@ def fitbit_nutrition_scope():
             log.error("exception occured: %s", str(e))
 
     if len(nutrition_logs_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -993,6 +1003,8 @@ def fitbit_nutrition_scope():
             log.error("exception occured: %s", str(e))
 
     if len(nutrition_goals_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1221,6 +1233,8 @@ def fitbit_heart_rate_scope():
 
     ######## LOAD DATA INTO BIGQUERY #########
     if len(hr_zones_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1329,6 +1343,8 @@ def fitbit_heart_rate_scope():
             log.error("exception occured: %s", str(e))
 
     if len(hr_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1516,6 +1532,8 @@ def fitbit_activity_scope():
     # bulk_omh_activity_df = pd.concat(omh_activity_list, axis=0)
 
     if len(activities_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1615,6 +1633,8 @@ def fitbit_activity_scope():
             log.error("exception occured: %s", str(e))
 
     if len(activity_summary_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1710,6 +1730,8 @@ def fitbit_activity_scope():
             log.error("exception occured: %s", str(e))
 
     if len(activity_goals_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1953,6 +1975,8 @@ def fitbit_intraday_scope():
     print("Intraday Scope: " + str(fitbit_execution_time))
 
     if len(intraday_steps_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1992,6 +2016,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_calories_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2039,6 +2065,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_distance_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2080,6 +2108,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_elevation_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2121,6 +2151,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_floors_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2186,6 +2218,7 @@ def fitbit_hrv_scope():
     hrv_list = []
 
     for user in user_list:
+        print(user)
 
         # Set the user in the Fitbit session
         fitbit_bp.storage.user = user
@@ -2222,9 +2255,27 @@ def fitbit_hrv_scope():
             log.error("Exception occurred: %s", str(e))
 
     if len(hrv_list) > 0:
+        print("😍😍😍😍HRV_SCOPE SI HAY DATOS!!!!!!!!!!!¨")
+        print(hrv_df.head())
+        print(hrv_df.dtypes)
+        
         try:
             # Combine all user DataFrames into one bulk DataFrame
             bulk_hrv_df = pd.concat(hrv_list, axis=0)
+            print("BULK DATAAA")
+            print(bulk_hrv_df.head())
+            print(bulk_hrv_df.dtypes)
+         
+            
+            bulk_hrv_df["id"] = bulk_hrv_df["id"].astype(str)
+            bulk_hrv_df["date"] = pd.to_datetime(bulk_hrv_df["date"], errors="coerce").dt.date
+            bulk_hrv_df["minute"] = pd.to_datetime(bulk_hrv_df["minute"], errors="coerce")
+            bulk_hrv_df["value_rmssd"] = pd.to_numeric(bulk_hrv_df["value_rmssd"], errors="coerce")
+            bulk_hrv_df["value_coverage"] = pd.to_numeric(bulk_hrv_df["value_coverage"], errors="coerce")
+            bulk_hrv_df["value_hf"] = pd.to_numeric(bulk_hrv_df["value_hf"], errors="coerce")
+            bulk_hrv_df["value_lf"] = pd.to_numeric(bulk_hrv_df["value_lf"], errors="coerce")
+
+            print(bulk_hrv_df.dtypes)
 
             # Load the bulk DataFrame into BigQuery
             pandas_gbq.to_gbq(
@@ -2343,6 +2394,8 @@ def fitbit_breathing_rate_scope():
             log.error("Exception occurred: %s", str(e))
 
     if len(breathing_rate_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
         try:
             # Combine all user DataFrames into one bulk DataFrame
             bulk_breathing_rate_df = pd.concat(breathing_rate_list, axis=0)
@@ -2410,6 +2463,7 @@ def fitbit_breathing_rate_scope():
 #
 @bp.route("/fitbit_sleep_goal_scope")
 def fitbit_sleep_goal_scope():
+    print("Sleep Goal Scope LLAMANDOOOOOOOOOOO")
 
     start = timeit.default_timer()
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -2417,6 +2471,8 @@ def fitbit_sleep_goal_scope():
     user_list = fitbit_bp.storage.all_users()
     if request.args.get("user") in user_list:
         user_list = [request.args.get("user")]
+    
+    print("User List:", user_list)
 
     pd.set_option("display.max_columns", 500)
 
@@ -2425,12 +2481,15 @@ def fitbit_sleep_goal_scope():
     for user in user_list:
         # Set the user in the Fitbit session
         fitbit_bp.storage.user = user
+        print("USER "+ user)
+
 
         # Clear any existing tokens to ensure a fresh API call
         if fitbit_bp.session.token:
             del fitbit_bp.session.token
 
         try:
+            print("Token actual:", fitbit_bp.session.token)
             resp = fitbit.get("/1.2/user/-/sleep/goal.json")
             
             log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
@@ -2452,6 +2511,8 @@ def fitbit_sleep_goal_scope():
             log.error("Exception occurred: %s", str(e))
 
     if len(sleep_goal_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
         try:
             # Combine all user DataFrames into one bulk DataFrame
             bulk_sleep_goal_df = pd.concat(sleep_goal_list, axis=0)
@@ -2514,6 +2575,7 @@ def fitbit_sleep_goal_scope():
 #
 @bp.route("/fitbit_sleep_scope")
 def fitbit_sleep_scope():
+    
     start = timeit.default_timer()
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     # if caller provided date as query params, use that otherwise use yesterday
@@ -2631,6 +2693,8 @@ def fitbit_sleep_scope():
     print("Sleep Scope: " + str(fitbit_execution_time))
 
     if len(sleep_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2746,6 +2810,8 @@ def fitbit_sleep_scope():
             log.error("exception occured: %s", str(e))
 
     if len(sleep_minutes_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2781,6 +2847,8 @@ def fitbit_sleep_scope():
             log.error("exception occured: %s", str(e))
 
     if len(sleep_summary_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2912,6 +2980,8 @@ def fitbit_spo2_scope():
     print("spo2 Scope: " + str(fitbit_execution_time))
 
     if len(spo2_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2952,9 +3022,13 @@ def fitbit_spo2_scope():
                     },
                 ],
             )
+        
 
         except (Exception) as e:
             log.error("spo2 exception occured: %s", str(e))
+            
+    else: 
+        print("😰 No data to load into BigQuery.")
 
     
     stop = timeit.default_timer()
@@ -3023,6 +3097,8 @@ def fitbit_spo2_intraday_scope():
     print("spo2 Scope: " + str(fitbit_execution_time))
 
     if len(spo2_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -3062,6 +3138,9 @@ def fitbit_spo2_intraday_scope():
         except (Exception) as e:
             log.error("spo2 exception occured: %s", str(e))
 
+     
+    else: 
+        print("😰 No data to load into BigQuery.")
     
     stop = timeit.default_timer()
     execution_time = stop - start
@@ -3130,6 +3209,8 @@ def fitbit_temp_scope():
     print("temp Scope: " + str(fitbit_execution_time))
 
     if len(temp_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -3174,6 +3255,9 @@ def fitbit_temp_scope():
 
         except (Exception) as e:
             log.error("temp exception occured: %s", str(e))
+            
+        else:
+            print("😰 No data to load into BigQuery.")
 
     
     stop = timeit.default_timer()
