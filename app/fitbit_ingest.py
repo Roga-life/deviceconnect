@@ -2258,7 +2258,6 @@ def fitbit_hrv_scope():
         print("😍😍😍😍HRV_SCOPE SI HAY DATOS!!!!!!!!!!!¨")
         print(hrv_df.head())
         print(hrv_df.dtypes)
-        
         try:
             # Combine all user DataFrames into one bulk DataFrame
             bulk_hrv_df = pd.concat(hrv_list, axis=0)
@@ -3098,11 +3097,23 @@ def fitbit_spo2_intraday_scope():
 
     if len(spo2_list) > 0:
         print("😎😎😎SI HAY DATOS 😎¨")
+        print(spo2_df.columns)
+        print(spo2_df.dtypes)
+
 
 
         try:
 
             bulk_spo2_df = pd.concat(spo2_list, axis=0)
+            print("Columnas de BULKKKKK")
+            print(bulk_spo2_df.columns)
+            bulk_spo2_df["value"] = pd.to_numeric(bulk_spo2_df["value"], errors="coerce")
+            bulk_spo2_df["date"] = pd.to_datetime(bulk_spo2_df["date"], errors="coerce").dt.date
+            bulk_spo2_df["minute"] = pd.to_datetime(bulk_spo2_df["minute"], errors="coerce")
+
+            print("TIPOSSSSSS")
+            print(bulk_spo2_df.dtypes)
+
 
             pandas_gbq.to_gbq(
                 dataframe=bulk_spo2_df,
@@ -3181,6 +3192,9 @@ def fitbit_temp_scope():
             resp = fitbit.get(f"/1/user/-/temp/skin/date/{date_pulled}.json")
 
             log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+            api_response = resp.json()
+            print("API Response for user", user, ":", api_response)
+            log.debug("API Response for user %s: %s", user, api_response)
 
             temp = resp.json()["tempSkin"]
             temp_df = pd.json_normalize(temp)
@@ -3209,12 +3223,21 @@ def fitbit_temp_scope():
     print("temp Scope: " + str(fitbit_execution_time))
 
     if len(temp_list) > 0:
-        print("😎😎😎SI HAY DATOS 😎¨")
+        # print("😎😎😎SI HAY DATOS 😎¨")
 
 
         try:
 
             bulk_temp_df = pd.concat(temp_list, axis=0)
+            bulk_temp_df = bulk_temp_df.rename(columns={
+                "date_time": "dateTime",
+                "log_type": "logType",
+            })
+            # print(bulk_temp_df.head())
+            bulk_temp_df["date"] = pd.to_datetime(bulk_temp_df["date"], errors="coerce").dt.date
+            bulk_temp_df["dateTime"] = pd.to_datetime(bulk_temp_df["dateTime"], errors="coerce")
+            
+            print(bulk_temp_df.dtypes)
 
             pandas_gbq.to_gbq(
                 dataframe=bulk_temp_df,
@@ -3236,13 +3259,13 @@ def fitbit_temp_scope():
                     },
                     {
                         "name": "dateTime",
-                        "type": "DATE",
+                        "type": "TIMESTAMP",
                         "mode": "REQUIRED",
                         "description": "the date of the measurements",
                     },
                     {
                         "name": "logType",
-                        "type": "FLOAT",
+                        "type": "STRING",
                         "description": "The type of skin temperature log created",
                     },
                     {
