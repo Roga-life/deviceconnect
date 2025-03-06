@@ -90,6 +90,7 @@ from skimpy import clean_columns
 
 from .fitbit_auth import fitbit_bp
 import time
+import base64
 
 log = logging.getLogger(__name__)
 
@@ -142,6 +143,8 @@ def send_request(url):
 def all_endpoints():
     print("🔄 Starting Fitbit data ingestion...")
     date_pulled = request.args.get("date", _date_pulled())
+    refresh_users()
+    print("Refresh users executed")
 
     results = []
     for endpoint in FITBIT_ENDPOINTS:
@@ -221,7 +224,82 @@ def _date_pulled():
     return date_pulled.strftime("%Y-%m-%d")
 
 
-#
+@bp.route("/refresh_users")
+def refresh_users():
+    start = timeit.default_timer()
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+
+    user_list = fitbit_bp.storage.all_users()
+    
+    if request.args.get("user") in user_list:
+        user_list = [request.args.get("user")]
+
+    for user in user_list:
+        log.debug("user: %s", user)
+
+        fitbit_bp.storage.user = user
+        # Clear any existing tokens to ensure a fresh API call
+        if fitbit_bp.session.token:
+            del fitbit_bp.session.token
+            
+        print(fitbit_bp.session.token)
+        user_tokens = fitbit_bp.session.token  
+
+        refresh_token = user_tokens.get("refresh_token")
+        access_token = user_tokens.get("access_token")
+        expires_at = user_tokens.get("expires_at")
+        expires_in = user_tokens.get("expires_in")
+
+        current_time = time.time()
+        # if current_time < expires_at:
+        #     print(f"✅ El token aún es válido para {user}. No es necesario refrescarlo.")
+        #     # continue
+
+        print(f"⚠️ Token Expired for {user}. Starting REFRESH ...")
+        current_time = time.time()
+        
+        new_tokens = request_new_fitbit_token(refresh_token)
+        if new_tokens:
+            new_access_token = new_tokens["access_token"]
+            new_refresh_token = new_tokens["refresh_token"]
+            new_expires_in = new_tokens["expires_in"]
+            new_expires_at = current_time + new_expires_in  
+
+            new_data = {
+                "access_token": new_access_token,
+                "refresh_token": new_refresh_token,
+                "expires_at": new_expires_at
+            }
+            fitbit_bp.storage.update(user, new_data)
+            print(f"✅ Firestore Doc Updatede for user: {user}")
+        else:
+            print(f"❌ ERROR:{user}")
+    return "Users refreshed"
+
+
+def request_new_fitbit_token(refresh_token):
+    FITBIT_CLIENT_ID = os.getenv("FITBIT_OAUTH_CLIENT_ID")
+    FITBIT_CLIENT_SECRET = os.getenv("FITBIT_OAUTH_CLIENT_SECRET")
+    FITBIT_TOKEN_URL = "https://api.fitbit.com/oauth2/token"
+
+    auth_header_value = base64.b64encode(f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()).decode()
+
+    headers = {
+        "Authorization": f"Basic {auth_header_value}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    url = f"{FITBIT_TOKEN_URL}?grant_type=refresh_token&refresh_token={refresh_token}"
+
+    response = requests.post(url, headers=headers, data="") 
+
+    if response.status_code == 200:
+        print("✅ TOKEN Refreshed succesfully :", response.json())
+        return response.json() 
+    else:
+        print("❌ ERROR Refreshing Token:", response.status_code, response.text)
+        return None
+
 # Chunk 1: Badges, Social, Device
 #
 @bp.route("/fitbit_chunk_1")

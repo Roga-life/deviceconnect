@@ -95,3 +95,6 @@ class FirestoreStorage(BaseStorage):
     def save(self, user, token):
         if user:
             self.collection.document(user).set(token)
+    def update(self, user, token):
+        if user:
+            self.collection.document(user).update(token)
