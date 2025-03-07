@@ -125,7 +125,7 @@ FITBIT_ENDPOINTS = [
 
 def send_request(url):
     try:
-        response = requests.get(url, timeout=60)
+        response = requests.get(url, timeout=900)
         status = response.status_code
 
         if status == 200:
