@@ -1,0 +1,57 @@
+
+Not working
+
+Acitivty logs  (Exception occurred: list index out of range)
+Spo2_intraday   
+
+
+
+
+
+
+Working
+
+Heart_rate_zones
+Sleep_summary
+breathing rate
+Sleep_goals
+Spo2
+
+Fixed: 
+Activity summary
+Acitivyt goals
+hrv_intraday  
+skin_temp    
+
+
+
+
+
+REQUIRED
+skin_temp summary (done)
+hrv Intraday  (done)
+Heart Rate intraday
+Breathing rate intraday   (this breathing intraday doesnt return all of the breathing data, just a summary --- check the fitbit doc)
+ (it collects the same data with breathing rate normal)
+Spo2 intraday   (done)
+   
+
+
+
+SpO2 -> Devuelve el resumen de los niveles de saturación de oxígeno en la sangre para una fecha específica. Incluye valores promedio, mínimo y máximo.
+SpO2 Intraday -> Devuelve los datos detallados de SpO2 durante el sueño para una fecha específica. Incluye mediciones tomadas cada 5 minutos con timestamp.
+hrv_intraday -> Devuelve la variabilidad de la frecuencia cardíaca (HRV) durante el sueño para una fecha específica. Incluye métricas como RMSSD, LF, HF y cobertura de datos.
+
+
+
+
+
+
+
+No se guardaron en el allendpoints
+breathing rate del 03 -03
+hrv intraday (muy pocos)
+skin temp
+Sleep
+sleep summary en blanco (creo que es porque no hay datos de jorge para ese dia)
+spo2 (pede ser tampoco por no haber dtos de sueno xd)
