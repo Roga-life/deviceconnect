@@ -89,7 +89,8 @@ from authlib.integrations.flask_client import OAuth
 from skimpy import clean_columns
 
 from .fitbit_auth import fitbit_bp
-
+import time
+import base64
 
 log = logging.getLogger(__name__)
 
@@ -117,12 +118,14 @@ FITBIT_ENDPOINTS = [
     f"{DOMAIN}/fitbit_spo2_intraday_scope",
     f"{DOMAIN}/fitbit_temp_scope",
     f"{DOMAIN}/fitbit_breathing_rate_scope",
-    f"{DOMAIN}/fitbit_hrv_scope"
+    f"{DOMAIN}/fitbit_hrv_scope",
+    f"{DOMAIN}/fitbit_breathing_rate_intraday_scope",
+    f"{DOMAIN}/fitbit_activity_scope"
 ]
 
 def send_request(url):
     try:
-        response = requests.get(url, timeout=60)
+        response = requests.get(url, timeout=900)
         status = response.status_code
 
         if status == 200:
@@ -139,14 +142,17 @@ def send_request(url):
 @bp.route("/all_endpoints")
 def all_endpoints():
     print("🔄 Starting Fitbit data ingestion...")
+    date_pulled = request.args.get("date", _date_pulled())
+    refresh_users()
+    print("Refresh users executed")
 
     results = []
     for endpoint in FITBIT_ENDPOINTS:
-        print(f"🙀 Sending {endpoint} request to Fitbit endpoint...")
-        result = send_request(endpoint)
+        full_url = f"{endpoint}?date={date_pulled}"
+        print(f"🙀 Sending {full_url} request to Fitbit endpoint...")
+        result = send_request(full_url)
         print("🚗 Done")
         results.append(result)
-
     print("✅ Fitbit data ingestion process completed.")
 
     return jsonify({
@@ -218,7 +224,82 @@ def _date_pulled():
     return date_pulled.strftime("%Y-%m-%d")
 
 
-#
+@bp.route("/refresh_users")
+def refresh_users():
+    start = timeit.default_timer()
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+
+    user_list = fitbit_bp.storage.all_users()
+    
+    if request.args.get("user") in user_list:
+        user_list = [request.args.get("user")]
+
+    for user in user_list:
+        log.debug("user: %s", user)
+
+        fitbit_bp.storage.user = user
+        # Clear any existing tokens to ensure a fresh API call
+        if fitbit_bp.session.token:
+            del fitbit_bp.session.token
+            
+        print(fitbit_bp.session.token)
+        user_tokens = fitbit_bp.session.token  
+
+        refresh_token = user_tokens.get("refresh_token")
+        access_token = user_tokens.get("access_token")
+        expires_at = user_tokens.get("expires_at")
+        expires_in = user_tokens.get("expires_in")
+
+        current_time = time.time()
+        # if current_time < expires_at:
+        #     print(f"✅ El token aún es válido para {user}. No es necesario refrescarlo.")
+        #     # continue
+
+        print(f"⚠️ Token Expired for {user}. Starting REFRESH ...")
+        current_time = time.time()
+        
+        new_tokens = request_new_fitbit_token(refresh_token)
+        if new_tokens:
+            new_access_token = new_tokens["access_token"]
+            new_refresh_token = new_tokens["refresh_token"]
+            new_expires_in = new_tokens["expires_in"]
+            new_expires_at = current_time + new_expires_in  
+
+            new_data = {
+                "access_token": new_access_token,
+                "refresh_token": new_refresh_token,
+                "expires_at": new_expires_at
+            }
+            fitbit_bp.storage.update(user, new_data)
+            print(f"✅ Firestore Doc Updatede for user: {user}")
+        else:
+            print(f"❌ ERROR:{user}")
+    return "Users refreshed"
+
+
+def request_new_fitbit_token(refresh_token):
+    FITBIT_CLIENT_ID = os.getenv("FITBIT_OAUTH_CLIENT_ID")
+    FITBIT_CLIENT_SECRET = os.getenv("FITBIT_OAUTH_CLIENT_SECRET")
+    FITBIT_TOKEN_URL = "https://api.fitbit.com/oauth2/token"
+
+    auth_header_value = base64.b64encode(f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()).decode()
+
+    headers = {
+        "Authorization": f"Basic {auth_header_value}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    url = f"{FITBIT_TOKEN_URL}?grant_type=refresh_token&refresh_token={refresh_token}"
+
+    response = requests.post(url, headers=headers, data="") 
+
+    if response.status_code == 200:
+        print("✅ TOKEN Refreshed succesfully :", response.json())
+        return response.json() 
+    else:
+        print("❌ ERROR Refreshing Token:", response.status_code, response.text)
+        return None
+
 # Chunk 1: Badges, Social, Device
 #
 @bp.route("/fitbit_chunk_1")
@@ -374,6 +455,8 @@ def fitbit_chunk_1():
     # df = pandas_gbq.read_gbq(sql, project_id=project_id)
 
     if len(badges_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨)")
+
 
         try:
 
@@ -442,6 +525,8 @@ def fitbit_chunk_1():
             log.error("exception occured: %s", str(e))
 
     if len(device_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -490,6 +575,7 @@ def fitbit_chunk_1():
             log.error("exception occured: %s", str(e))
 
     if len(social_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
 
         try:
 
@@ -613,9 +699,10 @@ def fitbit_body_weight():
     log.debug("push to BQ")
 
     if len(body_weight_df_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
-
             bulk_body_weight_df = pd.concat(body_weight_df_list, axis=0)
 
             pandas_gbq.to_gbq(
@@ -798,6 +885,8 @@ def fitbit_nutrition_scope():
     log.debug("push to BQ")
 
     if len(nutrition_summary_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -865,6 +954,8 @@ def fitbit_nutrition_scope():
             log.error("exception occured: %s", str(e))
 
     if len(nutrition_logs_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -993,6 +1084,8 @@ def fitbit_nutrition_scope():
             log.error("exception occured: %s", str(e))
 
     if len(nutrition_goals_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1182,7 +1275,7 @@ def fitbit_heart_rate_scope():
         try:
 
             resp = fitbit.get(
-                "/1/user/-/activities/heart/date/" + date_pulled + "/1d.json"
+                "/1/user/-/activities/heart/date/" + date_pulled + "/1d/1sec.json"
             )
 
             log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
@@ -1221,6 +1314,8 @@ def fitbit_heart_rate_scope():
 
     ######## LOAD DATA INTO BIGQUERY #########
     if len(hr_zones_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1329,6 +1424,8 @@ def fitbit_heart_rate_scope():
             log.error("exception occured: %s", str(e))
 
     if len(hr_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1516,6 +1613,8 @@ def fitbit_activity_scope():
     # bulk_omh_activity_df = pd.concat(omh_activity_list, axis=0)
 
     if len(activities_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1615,6 +1714,8 @@ def fitbit_activity_scope():
             log.error("exception occured: %s", str(e))
 
     if len(activity_summary_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1710,6 +1811,8 @@ def fitbit_activity_scope():
             log.error("exception occured: %s", str(e))
 
     if len(activity_goals_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1953,6 +2056,8 @@ def fitbit_intraday_scope():
     print("Intraday Scope: " + str(fitbit_execution_time))
 
     if len(intraday_steps_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -1992,6 +2097,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_calories_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2039,6 +2146,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_distance_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2080,6 +2189,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_elevation_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2121,6 +2232,8 @@ def fitbit_intraday_scope():
             log.error("exception occured: %s", str(e))
 
     if len(intraday_floors_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2186,6 +2299,7 @@ def fitbit_hrv_scope():
     hrv_list = []
 
     for user in user_list:
+        print(user)
 
         # Set the user in the Fitbit session
         fitbit_bp.storage.user = user
@@ -2222,9 +2336,26 @@ def fitbit_hrv_scope():
             log.error("Exception occurred: %s", str(e))
 
     if len(hrv_list) > 0:
+        print("😍😍😍😍HRV_SCOPE SI HAY DATOS!!!!!!!!!!!¨")
+        print(hrv_df.head())
+        print(hrv_df.dtypes)
         try:
             # Combine all user DataFrames into one bulk DataFrame
             bulk_hrv_df = pd.concat(hrv_list, axis=0)
+            print("BULK DATAAA")
+            print(bulk_hrv_df.head())
+            print(bulk_hrv_df.dtypes)
+         
+            
+            bulk_hrv_df["id"] = bulk_hrv_df["id"].astype(str)
+            bulk_hrv_df["date"] = pd.to_datetime(bulk_hrv_df["date"], errors="coerce").dt.date
+            bulk_hrv_df["minute"] = pd.to_datetime(bulk_hrv_df["minute"], errors="coerce")
+            bulk_hrv_df["value_rmssd"] = pd.to_numeric(bulk_hrv_df["value_rmssd"], errors="coerce")
+            bulk_hrv_df["value_coverage"] = pd.to_numeric(bulk_hrv_df["value_coverage"], errors="coerce")
+            bulk_hrv_df["value_hf"] = pd.to_numeric(bulk_hrv_df["value_hf"], errors="coerce")
+            bulk_hrv_df["value_lf"] = pd.to_numeric(bulk_hrv_df["value_lf"], errors="coerce")
+
+            print(bulk_hrv_df.dtypes)
 
             # Load the bulk DataFrame into BigQuery
             pandas_gbq.to_gbq(
@@ -2343,6 +2474,8 @@ def fitbit_breathing_rate_scope():
             log.error("Exception occurred: %s", str(e))
 
     if len(breathing_rate_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
         try:
             # Combine all user DataFrames into one bulk DataFrame
             bulk_breathing_rate_df = pd.concat(breathing_rate_list, axis=0)
@@ -2405,11 +2538,118 @@ def fitbit_breathing_rate_scope():
     return "Breathing Rate Scope Loaded"
 
 
+
+
+#Breathing rate Intraday
+
+@bp.route("/fitbit_breathing_rate_intraday_scope")
+def fitbit_breathing_rate_intraday_scope():
+    start = timeit.default_timer()
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    # Usamos la fecha proporcionada o, si no, la de ayer
+    date_pulled = request.args.get("date", _date_pulled())
+    user_list = fitbit_bp.storage.all_users()
+    if request.args.get("user") in user_list:
+        user_list = [request.args.get("user")]
+
+    pd.set_option("display.max_columns", 500)
+    br_list = []  # Lista para guardar los DataFrames de breathing rate intraday (resumen)
+
+    for user in user_list:
+        log.debug("user: %s", user)
+        fitbit_bp.storage.user = user
+
+        # Limpiar el token previo para forzar la carga desde Firestore
+        if fitbit_bp.session.token:
+            del fitbit_bp.session.token
+
+        try:
+            # Llamada al endpoint de breathing rate intraday para la fecha solicitada
+            resp = fitbit.get(f"/1/user/-/br/date/{date_pulled}/all.json")
+            log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+            response_json = resp.json()
+            print("🤩🤩🤩🤩🤩🤩🤩🤩🤩🤩")
+            print(response_json)
+        
+
+            # Verificamos que se hayan devuelto datos en "br"
+            if not response_json.get("br"):
+                log.warning("No breathing rate data returned for user %s on date %s", user, date_pulled)
+                continue
+
+            # Como la respuesta es un resumen intradiario, se espera un único objeto en el array "br"
+            br_item = response_json["br"][0]
+            # Extraemos el resumen de los valores y la fecha del registro
+            br_summary = br_item.get("value", {})
+            date_time = br_item.get("dateTime")
+            
+            # Normalizamos el resumen en un DataFrame
+            br_df = pd.json_normalize(br_summary)
+            # Insertamos el id del usuario y la fecha de la medición
+            br_df.insert(0, "id", user)
+            br_df.insert(1, "date", date_time)  # Se usa dateTime de la respuesta; alternativamente, puedes usar date_pulled
+            print(br_df.head())
+            print(br_df.dtypes)
+            print(br_df.columns)
+            
+            br_list.append(br_df)
+        except Exception as e:
+            log.error("Exception occurred for breathing rate intraday for user %s: %s", user, str(e))
+
+    if len(br_list) > 0:
+        
+        bulk_br_df = pd.concat(br_list, axis=0)
+        # Convertir 'date' a tipo DATE (si el valor viene en formato 'YYYY-MM-DD')
+        bulk_br_df["date"] = pd.to_datetime(bulk_br_df["date"], errors="coerce").dt.date
+
+        # Convertir las columnas de breathing rate a numérico (por ejemplo, pueden venir como strings)
+        for col in [
+            "deepSleepSummary.breathingRate",
+            "remSleepSummary.breathingRate",
+            "fullSleepSummary.breathingRate",
+            "lightSleepSummary.breathingRate",
+        ]:
+            bulk_br_df[col] = pd.to_numeric(bulk_br_df[col], errors="coerce")
+        
+        bulk_br_df = bulk_br_df.rename(columns={
+            "deepSleepSummary.breathingRate": "deepSleepSummary_breathingRate",
+            "remSleepSummary.breathingRate": "remSleepSummary_breathingRate",
+            "fullSleepSummary.breathingRate": "fullSleepSummary_breathingRate",
+            "lightSleepSummary.breathingRate": "lightSleepSummary_breathingRate",
+        })
+        
+        try:
+            pandas_gbq.to_gbq(
+                dataframe=bulk_br_df,
+                destination_table=_tablename("breathing_rate_intraday"),
+                project_id=project_id,
+                if_exists="append",
+                table_schema=[
+                    {"name": "id", "type": "STRING", "description": "Primary Key"},
+                    {"name": "date", "type": "DATE", "description": "The date values were extracted"},
+                    {"name": "deepSleepSummary_breathingRate", "type": "FLOAT", "description": "Breathing rate during deep sleep stage."},
+                    {"name": "remSleepSummary_breathingRate", "type": "FLOAT", "description": "Breathing rate during REM sleep stage."},
+                    {"name": "fullSleepSummary_breathingRate", "type": "FLOAT", "description": "Overall breathing rate during full sleep cycle."},
+                    {"name": "lightSleepSummary_breathingRate", "type": "FLOAT", "description": "Breathing rate during light sleep stage."},
+                ],
+            )
+        except Exception as e:
+            log.error("Exception occurred during BigQuery load for breathing rate intraday: %s", str(e))
+    else:
+        log.info("No breathing rate intraday data to load.")
+
+    stop = timeit.default_timer()
+    execution_time = stop - start
+    print("Breathing Rate Intraday Scope Loaded: " + str(execution_time))
+    fitbit_bp.storage.user = None
+    return "Breathing Rate Intraday Scope Loaded"
+
 #
 # Sleep Goal
 #
 @bp.route("/fitbit_sleep_goal_scope")
 def fitbit_sleep_goal_scope():
+    print("Sleep Goal Scope LLAMANDOOOOOOOOOOO")
 
     start = timeit.default_timer()
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -2417,6 +2657,8 @@ def fitbit_sleep_goal_scope():
     user_list = fitbit_bp.storage.all_users()
     if request.args.get("user") in user_list:
         user_list = [request.args.get("user")]
+    
+    print("User List:", user_list)
 
     pd.set_option("display.max_columns", 500)
 
@@ -2425,12 +2667,15 @@ def fitbit_sleep_goal_scope():
     for user in user_list:
         # Set the user in the Fitbit session
         fitbit_bp.storage.user = user
+        print("USER "+ user)
+
 
         # Clear any existing tokens to ensure a fresh API call
         if fitbit_bp.session.token:
             del fitbit_bp.session.token
 
         try:
+            print("Token actual:", fitbit_bp.session.token)
             resp = fitbit.get("/1.2/user/-/sleep/goal.json")
             
             log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
@@ -2452,6 +2697,8 @@ def fitbit_sleep_goal_scope():
             log.error("Exception occurred: %s", str(e))
 
     if len(sleep_goal_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
         try:
             # Combine all user DataFrames into one bulk DataFrame
             bulk_sleep_goal_df = pd.concat(sleep_goal_list, axis=0)
@@ -2514,10 +2761,12 @@ def fitbit_sleep_goal_scope():
 #
 @bp.route("/fitbit_sleep_scope")
 def fitbit_sleep_scope():
+    
     start = timeit.default_timer()
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     # if caller provided date as query params, use that otherwise use yesterday
     date_pulled = request.args.get("date", _date_pulled())
+    print(date_pulled)
     user_list = fitbit_bp.storage.all_users()
     if request.args.get("user") in user_list:
         user_list = [request.args.get("user")]
@@ -2543,6 +2792,8 @@ def fitbit_sleep_scope():
             resp = fitbit.get("/1/user/-/sleep/date/" + date_pulled + ".json")
 
             log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+            print("RESPUESTA DEL JSON")
+            print(resp.json())
 
             sleep = resp.json()["sleep"]
 
@@ -2606,13 +2857,10 @@ def fitbit_sleep_scope():
             sleep_df = _normalize_response(
                 sleep_df, sleep_columns, user, date_pulled
             )
-            sleep_df["end_time"] = pd.to_datetime(
-                date_pulled + " " + sleep_df["end_time"]
-            )
-            sleep_df["start_time"] = pd.to_datetime(
-                date_pulled + " " + sleep_df["start_time"]
-            )
-
+            sleep_df["end_time"] = pd.to_datetime(sleep_df["end_time"], errors="coerce")
+            sleep_df["start_time"] = pd.to_datetime(sleep_df["start_time"], errors="coerce")
+            #DESPUES
+            print(sleep_df[["end_time", "start_time"]].head())  
             sleep_summary_df = _normalize_response(
                 sleep_summary_df, sleep_summary_columns, user, date_pulled
             )
@@ -2631,6 +2879,8 @@ def fitbit_sleep_scope():
     print("Sleep Scope: " + str(fitbit_execution_time))
 
     if len(sleep_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2746,6 +2996,8 @@ def fitbit_sleep_scope():
             log.error("exception occured: %s", str(e))
 
     if len(sleep_minutes_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2781,6 +3033,8 @@ def fitbit_sleep_scope():
             log.error("exception occured: %s", str(e))
 
     if len(sleep_summary_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2912,6 +3166,8 @@ def fitbit_spo2_scope():
     print("spo2 Scope: " + str(fitbit_execution_time))
 
     if len(spo2_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
@@ -2952,9 +3208,13 @@ def fitbit_spo2_scope():
                     },
                 ],
             )
+        
 
         except (Exception) as e:
             log.error("spo2 exception occured: %s", str(e))
+            
+    else: 
+        print("😰 No data to load into BigQuery.")
 
     
     stop = timeit.default_timer()
@@ -2994,8 +3254,15 @@ def fitbit_spo2_intraday_scope():
         try:
 
             resp = fitbit.get(f"/1/user/-/spo2/date/{date_pulled}/all.json")
-
+            print(resp.json())
+            print("🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾🎾")
             log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+            response_json = resp.json()
+            spo2_data = response_json["minutes"]
+            count_spo2_readings = len(spo2_data)
+
+            print(f"📊 Número de mediciones de SpO2 para {date_pulled}: {count_spo2_readings}")
+            spo2_df = pd.json_normalize(spo2_data)
 
             spo2 = resp.json()["minutes"]
             spo2_df = pd.json_normalize(spo2)
@@ -3023,10 +3290,24 @@ def fitbit_spo2_intraday_scope():
     print("spo2 Scope: " + str(fitbit_execution_time))
 
     if len(spo2_list) > 0:
+        print("😎😎😎SI HAY DATOS 😎¨")
+        print(spo2_df.columns)
+        print(spo2_df.dtypes)
+
+
 
         try:
 
             bulk_spo2_df = pd.concat(spo2_list, axis=0)
+            print("Columnas de BULKKKKK")
+            print(bulk_spo2_df.columns)
+            bulk_spo2_df["value"] = pd.to_numeric(bulk_spo2_df["value"], errors="coerce")
+            bulk_spo2_df["date"] = pd.to_datetime(bulk_spo2_df["date"], errors="coerce").dt.date
+            bulk_spo2_df["minute"] = pd.to_datetime(bulk_spo2_df["minute"], errors="coerce")
+
+            print("TIPOSSSSSS")
+            print(bulk_spo2_df.dtypes)
+
 
             pandas_gbq.to_gbq(
                 dataframe=bulk_spo2_df,
@@ -3062,6 +3343,9 @@ def fitbit_spo2_intraday_scope():
         except (Exception) as e:
             log.error("spo2 exception occured: %s", str(e))
 
+     
+    else: 
+        print("😰 No data to load into BigQuery.")
     
     stop = timeit.default_timer()
     execution_time = stop - start
@@ -3102,6 +3386,9 @@ def fitbit_temp_scope():
             resp = fitbit.get(f"/1/user/-/temp/skin/date/{date_pulled}.json")
 
             log.debug("%s: %d [%s]", resp.url, resp.status_code, resp.reason)
+            api_response = resp.json()
+            print("API Response for user", user, ":", api_response)
+            log.debug("API Response for user %s: %s", user, api_response)
 
             temp = resp.json()["tempSkin"]
             temp_df = pd.json_normalize(temp)
@@ -3130,10 +3417,21 @@ def fitbit_temp_scope():
     print("temp Scope: " + str(fitbit_execution_time))
 
     if len(temp_list) > 0:
+        # print("😎😎😎SI HAY DATOS 😎¨")
+
 
         try:
 
             bulk_temp_df = pd.concat(temp_list, axis=0)
+            bulk_temp_df = bulk_temp_df.rename(columns={
+                "date_time": "dateTime",
+                "log_type": "logType",
+            })
+            # print(bulk_temp_df.head())
+            bulk_temp_df["date"] = pd.to_datetime(bulk_temp_df["date"], errors="coerce").dt.date
+            bulk_temp_df["dateTime"] = pd.to_datetime(bulk_temp_df["dateTime"], errors="coerce")
+            
+            print(bulk_temp_df.dtypes)
 
             pandas_gbq.to_gbq(
                 dataframe=bulk_temp_df,
@@ -3155,13 +3453,13 @@ def fitbit_temp_scope():
                     },
                     {
                         "name": "dateTime",
-                        "type": "DATE",
+                        "type": "TIMESTAMP",
                         "mode": "REQUIRED",
                         "description": "the date of the measurements",
                     },
                     {
                         "name": "logType",
-                        "type": "FLOAT",
+                        "type": "STRING",
                         "description": "The type of skin temperature log created",
                     },
                     {
@@ -3174,6 +3472,9 @@ def fitbit_temp_scope():
 
         except (Exception) as e:
             log.error("temp exception occured: %s", str(e))
+            
+        else:
+            print("😰 No data to load into BigQuery.")
 
     
     stop = timeit.default_timer()
